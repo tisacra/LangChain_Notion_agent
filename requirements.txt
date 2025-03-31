@@ -1,0 +1,6 @@
+# 2025/04/01
+langchain_openai
+langchain_community
+notion_client
+python-dotenv
+openai
