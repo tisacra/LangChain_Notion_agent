@@ -1,15 +1,16 @@
+from dotenv import load_dotenv
 from langmanus import Manus
 from notion_client import Client
 import datetime
 import json
+import os
 
 # === 設定 ===
-with open("secret.json", "r") as f:
-    secrets = json.load(f)
+load_dotenv()  # .envファイルを読み込む
+NOTION_TOKEN = os.getenv("NOTION_TOKEN")
+DATABASE_ID = os.getenv("NOTION_DATABASE_ID")
 
 # === Notion設定 ===
-NOTION_TOKEN = secrets["NOTION_TOKEN"]
-DATABASE_ID = secrets["NOTION_DATABASE_ID"]
 notion = Client(auth=NOTION_TOKEN)
 
 # === Notion保存関数 ===
