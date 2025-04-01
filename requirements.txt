@@ -5,3 +5,4 @@ notion_client
 python-dotenv
 openai
 faiss-cpu
+streamlit
