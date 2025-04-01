@@ -23,6 +23,11 @@ from dotenv import load_dotenv
 import pickle
 import shutil
 
+
+# === 動的要約設定 ===
+SUMMARY_INTERVAL = 3  # 3ターンごとに要約
+summary_memory = ""  # 要約蓄積用
+
 # === 環境変数読み込み ===
 load_dotenv()
 
@@ -141,8 +146,23 @@ def is_valid_save_command(user_input):
     #print(f"判断結果: {decision}")
     return "はい" in decision
 
+# === 要約関数 ===
+def summarize_memory():
+    global summary_memory
+    current_history = "".join([msg.content for msg in memory.load_memory_variables({})["history"]])
+    prompt = f"""
+    以下の議論履歴を簡潔に要約してください。
+
+    {current_history}
+    """
+    summary = llm.invoke(prompt).content
+    summary_memory += f"\n{summary}"
+    print(f"📝 要約追加: {summary}")
+    memory.clear()
+
 # === 実行例 ===
 if __name__ == "__main__":
+    turn_counter = 0
     try:
         while True:
             user_input = input("> ")
@@ -166,7 +186,7 @@ if __name__ == "__main__":
                 """
                 history = memory.load_memory_variables({})["history"]
                 # リストを文字列に変換してから連結
-                messages = "\n".join([msg.content for msg in history]) + f"\n{summary_prompt}"
+                messages = summary_memory + "\n".join([msg.content for msg in history]) + f"\n{summary_prompt}"
                 print(f"要約プロンプト: {messages}")
                 summary = llm.invoke(messages).content
 
@@ -192,10 +212,16 @@ if __name__ == "__main__":
                 retrieved = "\n".join([d.page_content for d in docs])
 
                 # LLM応答
-                prompt = f"これまでの会話: {memory.load_memory_variables({})['history']}\n\n関連議論: {retrieved}\n\nユーザー: {user_input}"
+                history = summary_memory + "\n" + memory.load_memory_variables({})["history"]
+                prompt = history + f"\nユーザー: {user_input}"
                 result = llm.invoke(prompt).content
                 print(result)
                 memory.chat_memory.add_ai_message(result)
+                turn_counter += 1
+            
+            # 動的要約
+        if turn_counter % SUMMARY_INTERVAL == 0:
+            summarize_memory()
 
     finally:
         save_memory(memory)

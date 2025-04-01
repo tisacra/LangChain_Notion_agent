@@ -44,3 +44,15 @@ OPENAI_ORGANIZATION_ID = "your_openai_org_id" # organizationで運用する場�
 NOTION_TOKEN = "your_notion_token"
 PAGE_ID = "your_notion_page_id"
 ```
+
+## 実行
+
+CLI版
+```bash
+python main7.py
+```
+
+WebUI版
+```bash
+streamlit run app01.py
+```
