@@ -4,15 +4,34 @@ import os
 
 load_dotenv()
 NOTION_TOKEN = os.getenv("NOTION_TOKEN")
+PAGE_ID = os.getenv("PAGE_ID")
 
 notion = Client(auth=NOTION_TOKEN)
 
-response = notion.search(filter={"property": "object", "value": "database"})
-for result in response["results"]:
-    print(result["id"], result["title"])
+# === 内容を読み出し ===
+def get_page_content(page_id):
+    result = notion.blocks.children.list(block_id=page_id)
+    return result
 
-database_id = response["results"][0]["id"]
+# === ブロックとして追記 ===
+def append_to_page(page_id, content):
+    notion.blocks.children.append(
+        block_id=page_id,
+        children=[
+            {
+                "object": "block",
+                "type": "bulleted_list_item",
+                "bulleted_list_item": {
+                    "rich_text": [
+                        {"type": "text", "text": {"content": content}}
+                    ]
+                }
+            }
+        ]
+    )
+    print(f"📝 ページに追記しました: {content}")
 
-response = notion.databases.query(database_id=database_id)
-for page in response["results"]:
-    print(page["properties"])
+# === 実行例 ===
+if __name__ == "__main__":
+    print(get_page_content(PAGE_ID))
+    append_to_page(PAGE_ID, "Test content")

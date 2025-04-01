@@ -1,4 +1,6 @@
-
+# vectorstore and memory
+vectorstore_index/
+memory.pkl
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
