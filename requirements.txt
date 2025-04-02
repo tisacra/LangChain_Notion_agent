@@ -1,8 +1,12 @@
 # 2025/04/01
 langchain_openai
 langchain_community
+langchain-huggingface
 notion_client
 python-dotenv
 openai
 faiss-cpu
 streamlit
+transformers
+sentencepiece
+accelerate

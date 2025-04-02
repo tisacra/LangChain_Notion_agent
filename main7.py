@@ -17,14 +17,36 @@ graph TD
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from langchain.vectorstores import FAISS
 from langchain.memory import ConversationBufferMemory
-from notion_client import Client
 import os
 from dotenv import load_dotenv
 import pickle
 import shutil
 
+import subsystem.Notion_func as Notion_func
+
+SUMMARIZE_LOCAL = False
 
 # === 動的要約設定 ===
+from langchain_community.chat_models import ChatOllama
+
+# 要約専用パイプライン
+local_summarizer = ChatOllama(model="mistral")
+
+# 要約時のみ切り替え
+def local_summarize_memory():
+    global summary_memory
+    current_history = "".join([msg.content for msg in memory.load_memory_variables({})["history"]])
+    prompt = current_history + "\n" + """
+    この議論内容をNotionに保存するのに適した形で要約してください。
+    特に、質疑応答を重視して、[質問]→[回答]の形式で示すようにしてください。
+    """
+    print(f"📝 要約します: {prompt}")
+    summary = local_summarizer.invoke(prompt).content
+    summary_memory += f"\n{summary}"
+    print(f"📝 要約追加 (ローカル): {summary}")
+    memory.clear()
+
+
 SUMMARY_INTERVAL = 3  # 3ターンごとに要約
 summary_memory = ""  # 要約蓄積用
 
@@ -33,21 +55,21 @@ load_dotenv()
 
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 OPENAI_ORGANIZATION_ID = os.getenv("OPENAI_ORGANIZATION_ID")
-NOTION_TOKEN = os.getenv("NOTION_TOKEN")
 PAGE_ID = os.getenv("PAGE_ID")
+DATABASE_ID = os.getenv("DATABASE_ID")
 MEMORY_PATH = "memory.pkl"
 VECTORSTORE_PATH = "vectorstore_index"
 
 if not PAGE_ID:
     raise ValueError("PAGE_ID is not set in .env file")
 
-# === NotionとLLMの初期化 ===
-notion = Client(auth=NOTION_TOKEN)
+# === LLMの初期化 ===
 llm = ChatOpenAI(
     api_key=OPENAI_API_KEY,
     organization=OPENAI_ORGANIZATION_ID,
     model_name="gpt-3.5-turbo"
 )
+
 embeddings = OpenAIEmbeddings()
 
 # === Memoryの初期化 ===
@@ -113,23 +135,7 @@ def refresh_all():
 
 vectorstore = load_vectorstore()
 
-# === Notionブロック追記関数 ===
-def append_to_page(page_id, content):
-    notion.blocks.children.append(
-        block_id=page_id,
-        children=[
-            {
-                "object": "block",
-                "type": "bulleted_list_item",
-                "bulleted_list_item": {
-                    "rich_text": [
-                        {"type": "text", "text": {"content": content}}
-                    ]
-                }
-            }
-        ]
-    )
-    print(f"📝 ページに追記しました: {content}")
+
 
 # === 保存指示判定 ===
 def is_valid_save_command(user_input):
@@ -152,6 +158,7 @@ def summarize_memory():
     current_history = "".join([msg.content for msg in memory.load_memory_variables({})["history"]])
     prompt = f"""
     以下の議論履歴を簡潔に要約してください。
+    特に、質疑応答を重視して、[質問]→[回答]の形式で示すようにしてください。
 
     {current_history}
     """
@@ -191,7 +198,7 @@ if __name__ == "__main__":
                 summary = llm.invoke(messages).content
 
                 # Notion保存
-                append_to_page(PAGE_ID, summary)
+                Notion_func.append_to_page(PAGE_ID, summary)
 
                 # VectorStore登録
                 vectorstore.add_texts([summary])
@@ -203,6 +210,7 @@ if __name__ == "__main__":
                     print(f"⚠️ VectorStoreの保存に失敗しました: {e}")
 
                 #memory.chat_memory.add_ai_message(summary)
+                turn_counter += 1
 
             else:
                 memory.chat_memory.add_user_message(user_input)
@@ -212,7 +220,7 @@ if __name__ == "__main__":
                 retrieved = "\n".join([d.page_content for d in docs])
 
                 # LLM応答
-                history = summary_memory + "\n" + memory.load_memory_variables({})["history"]
+                history = summary_memory + "\n".join([msg.content for msg in memory.load_memory_variables({})["history"]])
                 prompt = history + f"\nユーザー: {user_input}"
                 result = llm.invoke(prompt).content
                 print(result)
@@ -220,8 +228,12 @@ if __name__ == "__main__":
                 turn_counter += 1
             
             # 動的要約
-        if turn_counter % SUMMARY_INTERVAL == 0:
-            summarize_memory()
+            if turn_counter % SUMMARY_INTERVAL == 0:
+                if SUMMARIZE_LOCAL:
+                    local_summarize_memory()
+                else:
+                    summarize_memory()
+                print(f"🔄 動的要約: {summary_memory}")
 
     finally:
         save_memory(memory)
