@@ -14,8 +14,10 @@ graph TD
     G --> H[ConversationBufferMemory の履歴と検索結果をプロンプトに挿入]
     H --> I[LLM 応答生成]
     I --> J[ユーザーに回答表示]
-    A --> K[ConversationBufferMemory に発話追加]
-    I --> K
+    J --> K[ConversationBufferMemory に発話追加
+            +
+            質問・回答ペアを VectorStore に追加]
+    K --> A
 ```
 
 ## 設定

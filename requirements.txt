@@ -2,6 +2,7 @@
 langchain_openai
 langchain_community
 langchain-huggingface
+langchain_ollama
 notion_client
 python-dotenv
 openai
