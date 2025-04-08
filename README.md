@@ -44,7 +44,8 @@ pip install -r requirements.txt
 OPENAI_API_KEY = "your_openai_api_key"
 OPENAI_ORGANIZATION_ID = "your_openai_org_id" # organizationで運用する場合
 NOTION_TOKEN = "your_notion_token"
-PAGE_ID = "your_notion_page_id"
+PAGE_ID = "your_notion_default_page_id"
+DATABASE_ID = "your_notion_database_id"
 ```
 
 ## 実行

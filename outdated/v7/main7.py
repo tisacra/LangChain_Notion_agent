@@ -1,23 +1,7 @@
 # === LangChain + Notion ブロック追記版 (ConversationBufferMemory + VectorStore統合) ===
-'''
-graph TD
-    A[ユーザー入力] --> B{保存指示ありか}
-    B -->|あり| C[ConversationBufferMemory から履歴取得]
-    C --> D[履歴を要約 #40;LLM#41;]
-    D --> E[Notion 固定ページにブロック追記]
-    D --> F[要約内容を VectorStore に追加]
-    B -->|なし| G[VectorStore で類似履歴検索]
-    G --> H[ConversationBufferMemory の履歴と検索結果をプロンプトに挿入]
-    H --> I[LLM 応答生成]
-    I --> J[ユーザーに回答表示]
-    J --> K[ConversationBufferMemory に発話追加
-            +
-            質問・回答ペアを VectorStore に追加]
-    K --> A
-'''
 
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
-from langchain.vectorstores import FAISS
+from langchain_community.vectorstores import FAISS
 from langchain.memory import ConversationBufferMemory
 import os
 from dotenv import load_dotenv
@@ -26,8 +10,15 @@ import shutil
 
 import subsystem.Notion_func as Notion_func
 
+
+DEBUG = True
+
 SUMMARIZE_LOCAL = False
 VALID_SAVE_LOCAL = False
+VALID_NEW_TOPIC_LOCAL = False
+
+if DEBUG:
+    print("Debug mode is enabled.")
 
 # === 動的要約設定 ===
 from langchain_ollama import ChatOllama
@@ -65,16 +56,30 @@ llm = ChatOpenAI(
 
 embeddings = OpenAIEmbeddings()
 
+# === ページID更新関数 ===
+def update_page_id(new_page_id):
+    """グローバルなPAGE_IDを更新する関数"""
+    global PAGE_ID
+    PAGE_ID = new_page_id
+
+def get_page_id():
+    return PAGE_ID
 
 # === Memoryの初期化 ===
+
 def load_memory():
     if os.path.exists(MEMORY_PATH + PAGE_ID + ".pkl"):
         with open(MEMORY_PATH + PAGE_ID + ".pkl", "rb") as f:
+            if DEBUG:
+                print(f"💾 会話履歴をロードしました : {PAGE_ID}")
             return pickle.load(f)
     return ConversationBufferMemory(return_messages=True)
 
-def save_memory(memory):
+def save_memory():
+    global memory
     with open(MEMORY_PATH + PAGE_ID + ".pkl", "wb") as f:
+        if DEBUG:
+            print(f"💾 会話履歴を保存しました : {PAGE_ID}")
         pickle.dump(memory, f)
 
 def refresh_memory():
@@ -83,7 +88,8 @@ def refresh_memory():
     memory = ConversationBufferMemory(return_messages=True)
     if os.path.exists(MEMORY_PATH + PAGE_ID + ".pkl"):
         os.remove(MEMORY_PATH + PAGE_ID + ".pkl")
-    print("🔄 会話履歴をリフレッシュしました")
+    if DEBUG:
+        print(f"🔄 会話履歴をリフレッシュしました : {PAGE_ID}")
 
 memory = load_memory()
 
@@ -91,6 +97,8 @@ memory = load_memory()
 def load_vectorstore():
     """VectorStoreをロード、なければ新規作成"""
     if os.path.exists(VECTORSTORE_PATH + PAGE_ID):
+        if DEBUG:
+            print(f"💾 VectorStoreをロードしました : {PAGE_ID}")
         return FAISS.load_local(VECTORSTORE_PATH + PAGE_ID, embeddings, allow_dangerous_deserialization=True)
     
     # 初期化時は最低1つのテキストが必要
@@ -99,11 +107,14 @@ def load_vectorstore():
         embeddings
     )
     vectorstore.save_local(VECTORSTORE_PATH + PAGE_ID)
+    if DEBUG:
+        print(f"💾 VectorStoreを初期化しました : {PAGE_ID}")
     return vectorstore
 
-def save_vectorstore(vectorstore):
-    """VectorStoreを保存"""
+def save_vectorstore():
     vectorstore.save_local(VECTORSTORE_PATH + PAGE_ID)
+    if DEBUG:
+        print(f"💾 VectorStoreを保存しました : {PAGE_ID}")
 
 def refresh_vectorstore():
     """VectorStoreをリフレッシュする"""
@@ -119,13 +130,14 @@ def refresh_vectorstore():
         except Exception as e:
             print(f"⚠️ VectorStoreの削除中にエラーが発生しました: {e}")
             return
-    print("🔄 VectorStoreをリフレッシュしました")
+    if DEBUG:
+        print(f"🔄 VectorStoreをリフレッシュしました : {PAGE_ID}")
 
 def refresh_all():
     """会話履歴とVectorStore両方をリフレッシュする"""
     refresh_memory()
     refresh_vectorstore()
-    print("✨ 全てのデータをリフレッシュしました")
+    print("✨ 全てのデータをリフレッシュしました : {PAGE_ID}")
 
 vectorstore = load_vectorstore()
 
@@ -147,16 +159,27 @@ def is_valid_save_command(user_input):
 
 def is_new_topic(input):
     prompt = f"""
-    以下のやり取りの流れは、「異なる新しいトピックの開始」だと思われますか？
-    「はい」または「いいえ」だけで答えてください。
-
+    以下のやり取りの流れは、明らかに「異なる新しいトピックの開始」だと思われますか？
     発話: "{input}"
+
+    話題の変更が明示されている場合は「はい」を返してください。
+    相槌の場合は「いいえ」を返してください。
+    次のようなフォーマットで判断結果と理由を返してください。
+    
+    判断結果：「はい」または「いいえ」
+    理由：最長200文字程度
     """
-    decision = llm.invoke(prompt).content
-    print(f"判断結果: {decision}")
+    if VALID_NEW_TOPIC_LOCAL:
+        decision = local_summarizer.invoke(prompt).content
+    else:
+        decision = llm.invoke(prompt).content
+    decision_part = decision.split("判断結果：")[1].split("理由：")[0].strip()
+    if DEBUG:
+        print(decision)
+        print(f"判断結果: {decision_part}")
     return "はい" in decision
 
-# === 要約関数 ===
+# === 要約サブルーチン ===
 def summarize_memory():
     global summary_memory
     current_history = "\n".join([msg.content for msg in memory.load_memory_variables({})["history"]])
@@ -171,15 +194,19 @@ def summarize_memory():
     else:
         summary = local_summarizer.invoke(prompt).content
     summary_memory += f"\n{summary}"
-    print(f"📝 要約追加: {summary}")
+    
+    if DEBUG:
+        print("prompt : ", prompt)
+        print(f"📝 要約追加: {summary}")
     memory.chat_memory.clear()
-    print(memory.load_memory_variables({}))
+    memory.chat_memory.add_message(summary)
     return summary
 
 def save_summary():
     print("💾 保存指示が検出されました。指定ページに追記します。")
     # Notion保存
     Notion_func.append_to_page(PAGE_ID, summarize_memory())
+    memory.chat_memory.clear()
 
 def input_flow(user_input):
     global turn_counter
@@ -200,10 +227,9 @@ def input_flow(user_input):
     if is_valid_save_command(user_input):
         save_summary()
         try:
-            save_vectorstore(vectorstore)
+            save_vectorstore()
         except Exception as e:
             print(f"⚠️ VectorStoreの保存に失敗しました: {e}")
-
     else:
         # 類似履歴検索
         docs = vectorstore.similarity_search(user_input, k=2)
@@ -221,21 +247,26 @@ def input_flow(user_input):
             refresh_memory()
 
         result = llm.invoke(prompt).content
-        print(result)
+        #print(result)
         # 通常発話もペアで保存
         pair_text = f"[質問] {user_input}\n[回答] {result}"
         vectorstore.add_texts([pair_text])
-        save_vectorstore(vectorstore)
+        save_vectorstore()
 
         # Memoryにも追加
         memory.chat_memory.add_user_message(user_input)
         memory.chat_memory.add_ai_message(result)
         turn_counter += 1
+        if DEBUG:
+            print("Memory履歴:", memory.load_memory_variables({})["history"])
+
     
         # 動的要約
         if turn_counter % SUMMARY_INTERVAL == 0:
             summarize_memory()
             print(f"🔄 動的要約: {summary_memory}")
+        
+        return result
 
 
 # === 実行例 ===
@@ -246,8 +277,9 @@ if __name__ == "__main__":
             user_input = input("> ")
             if user_input.lower() in ["exit", "quit"]:
                 break
-            input_flow(user_input)
+            print(input_flow(user_input))
             
+
     finally:
         save_memory(memory)
         print("✅ 会話履歴を保存しました。")
