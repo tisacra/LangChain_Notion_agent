@@ -1,6 +1,9 @@
 # 2025/04/07
 langgraph
 langgraph.checkpoint
+
+tavily-python
+
 langgraph.checkpoint.sqlite
 
 grandalf
